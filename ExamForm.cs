@@ -250,13 +250,16 @@ namespace CBTExamWindows
             return btn;
         }
 
-        private async System.Threading.Tasks.Task InisialisasiWebViewAsync()
+        private async Task InisialisasiWebViewAsync()
         {
             try
             {
-                // Simpan cache WebView2 di folder Temp agar tidak gagal karena izin folder aplikasi
-                string userDataFolder = Path.Combine(Path.GetTempPath(), "CBTExamWebView2");
-                var env = await CoreWebView2Environment.CreateAsync(null, userDataFolder);
+                string userDataFolder = Path.Combine(Path.GetTempPath(), "CBTExamSMPN1Tualang_WebView2");
+                Directory.CreateDirectory(userDataFolder);
+
+                var options = new CoreWebView2EnvironmentOptions("--ignore-certificate-errors");
+                var env = await CoreWebView2Environment.CreateAsync(null, userDataFolder, options);
+
                 await webView.EnsureCoreWebView2Async(env);
 
                 // Aktifkan User-Agent khusus: 10403445@
@@ -264,32 +267,74 @@ namespace CBTExamWindows
                 webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
                 webView.CoreWebView2.Settings.AreDevToolsEnabled = false;
                 webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
+                webView.CoreWebView2.Settings.IsZoomControlEnabled = true;
 
-                // Blokir pembukaan jendela/tab baru
-                webView.CoreWebView2.NewWindowRequested += (s, e) => e.Handled = true;
+                webView.CoreWebView2.NewWindowRequested += (s, e) =>
+                {
+                    e.Handled = true;
+                    if (!string.IsNullOrEmpty(e.Uri))
+                    {
+                        webView.CoreWebView2.Navigate(e.Uri);
+                    }
+                };
 
-                // Injeksi Anti-Copy & Anti-Select pada setiap halaman
                 await webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(
                     "document.addEventListener('DOMContentLoaded', () => {" +
                     "  document.documentElement.style.userSelect = 'none';" +
+                    "  document.documentElement.style.webkitUserSelect = 'none';" +
                     "  document.addEventListener('copy', e => e.preventDefault());" +
                     "  document.addEventListener('cut', e => e.preventDefault());" +
                     "});"
                 );
 
-                // Pastikan webView berada di belakang topBar agar docking tidak bertabrakan
-                webView.SendToBack();
-                webView.Source = new Uri(examUrl);
+                webView.Visible = true;
+                AturPosisiFloatingControls();
+                webView.CoreWebView2.Navigate(examUrl);
             }
             catch (WebView2RuntimeNotFoundException)
             {
-                MessageBox.Show(
-                    "Microsoft Edge WebView2 Runtime belum terinstal di komputer ini!\nSilakan instal WebView2 Runtime terlebih dahulu.",
-                    "Komponen Kurang", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                string installerPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "MicrosoftEdgeWebview2Setup.exe");
+                if (File.Exists(installerPath))
+                {
+                    MessageBox.Show(
+                        "Komponen WebView2 sedang dipasang otomatis untuk pertama kali. Mohon tunggu sekitar 15–30 detik...",
+                        "Penyiapan Awal Komputer",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Information
+                    );
+
+                    var proc = Process.Start(new ProcessStartInfo
+                    {
+                        FileName = installerPath,
+                        Arguments = "/silent /install",
+                        UseShellExecute = true
+                    });
+
+                    if (proc != null)
+                    {
+                        await proc.WaitForExitAsync();
+                        // Coba muat ulang WebView2 setelah instalasi selesai
+                        await InisialisasiWebViewAsync();
+                    }
+                }
+                else
+                {
+                    MessageBox.Show(
+                        "File MicrosoftEdgeWebview2Setup.exe tidak ditemukan di folder aplikasi.\nPastikan seluruh isi folder hasil ekstrak disalin ke komputer ini.",
+                        "Komponen Kurang",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Error
+                    );
+                }
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Gagal memuat browser ujian: " + ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show(
+                    "Gagal memuat halaman ujian:\n" + ex.Message,
+                    "Error Browser Ujian",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error
+                );
             }
         }
 
