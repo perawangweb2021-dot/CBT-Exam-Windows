@@ -252,27 +252,45 @@ namespace CBTExamWindows
 
         private async System.Threading.Tasks.Task InisialisasiWebViewAsync()
         {
-            await webView.EnsureCoreWebView2Async();
+            try
+            {
+                // Simpan cache WebView2 di folder Temp agar tidak gagal karena izin folder aplikasi
+                string userDataFolder = Path.Combine(Path.GetTempPath(), "CBTExamWebView2");
+                var env = await CoreWebView2Environment.CreateAsync(null, userDataFolder);
+                await webView.EnsureCoreWebView2Async(env);
 
-            // Aktifkan User-Agent khusus: 10403445@
-            webView.CoreWebView2.Settings.UserAgent = "10403445@";
-            webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
-            webView.CoreWebView2.Settings.AreDevToolsEnabled = false;
-            webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
+                // Aktifkan User-Agent khusus: 10403445@
+                webView.CoreWebView2.Settings.UserAgent = "10403445@";
+                webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
+                webView.CoreWebView2.Settings.AreDevToolsEnabled = false;
+                webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
 
-            // Blokir pembukaan jendela/tab baru
-            webView.CoreWebView2.NewWindowRequested += (s, e) => e.Handled = true;
+                // Blokir pembukaan jendela/tab baru
+                webView.CoreWebView2.NewWindowRequested += (s, e) => e.Handled = true;
 
-            // Injeksi Anti-Copy & Anti-Select pada setiap halaman
-            await webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(
-                "document.addEventListener('DOMContentLoaded', () => {" +
-                "  document.documentElement.style.userSelect = 'none';" +
-                "  document.addEventListener('copy', e => e.preventDefault());" +
-                "  document.addEventListener('cut', e => e.preventDefault());" +
-                "});"
-            );
+                // Injeksi Anti-Copy & Anti-Select pada setiap halaman
+                await webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(
+                    "document.addEventListener('DOMContentLoaded', () => {" +
+                    "  document.documentElement.style.userSelect = 'none';" +
+                    "  document.addEventListener('copy', e => e.preventDefault());" +
+                    "  document.addEventListener('cut', e => e.preventDefault());" +
+                    "});"
+                );
 
-            webView.Source = new Uri(examUrl);
+                // Pastikan webView berada di belakang topBar agar docking tidak bertabrakan
+                webView.SendToBack();
+                webView.Source = new Uri(examUrl);
+            }
+            catch (WebView2RuntimeNotFoundException)
+            {
+                MessageBox.Show(
+                    "Microsoft Edge WebView2 Runtime belum terinstal di komputer ini!\nSilakan instal WebView2 Runtime terlebih dahulu.",
+                    "Komponen Kurang", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Gagal memuat browser ujian: " + ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         private void MulaiKameraPengawas()
