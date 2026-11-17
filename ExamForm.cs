@@ -1,10 +1,12 @@
 using System;
 using System.Diagnostics;
 using System.Drawing;
+using System.IO;
 using System.Media;
 using System.Net.NetworkInformation;
 using System.Runtime.InteropServices;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
@@ -16,14 +18,17 @@ namespace CBTExamWindows
     public class ExamForm : Form
     {
         private readonly string examUrl;
+        private Panel topBar;
         private WebView2 webView;
         private Label lblClock, lblBattery, lblNetwork;
         private PictureBox picCamera;
         private Panel pnlCamera;
+        private Button btnZoomIn, btnZoomOut;
         private System.Windows.Forms.Timer statusTimer;
 
         private bool isAuthorizedExit = false;
         private bool cameraRunning = false;
+        private bool isInstallingRuntime = false;
         private double currentZoom = 1.0;
         private IntPtr keyboardHookId = IntPtr.Zero;
         private LowLevelKeyboardProc keyboardProc;
@@ -64,9 +69,11 @@ namespace CBTExamWindows
             InisialisasiLayout();
             PasangBlokirKeyboard();
             MaksimalkanVolumeWindows();
-            _ = InisialisasiWebViewAsync();
             MulaiKameraPengawas();
             MulaiMonitorStatus();
+
+            // Jalankan inisialisasi WebView2 setelah Form tampil sepenuhnya agar window handle siap
+            Shown += async (s, e) => await InisialisasiWebViewAsync();
         }
 
         protected override void OnHandleCreated(EventArgs e)
@@ -78,8 +85,16 @@ namespace CBTExamWindows
 
         private void InisialisasiLayout()
         {
-            // Bar Atas
-            Panel topBar = new Panel
+            // 1. WebView2 Browser Ujian (Tambahkan lebih dulu dengan Dock.Fill)
+            webView = new WebView2
+            {
+                Dock = DockStyle.Fill,
+                DefaultBackgroundColor = Color.White
+            };
+            Controls.Add(webView);
+
+            // 2. Bar Atas (Tambahkan setelah webView agar Dock.Top memotong area atas dengan rapi)
+            topBar = new Panel
             {
                 Dock = DockStyle.Top,
                 Height = 46,
@@ -153,20 +168,13 @@ namespace CBTExamWindows
             rightPanel.Controls.Add(btnRefresh);
             topBar.Controls.Add(rightPanel);
 
-            // WebView2 Browser Ujian
-            webView = new WebView2
-            {
-                Dock = DockStyle.Fill
-            };
-            Controls.Add(webView);
-            webView.BringToFront();
-
-            // Pojok Kiri Bawah: Live Kamera Depan Pengawas
+            // 3. Pojok Kiri Bawah: Live Kamera Depan Pengawas
             pnlCamera = new Panel
             {
                 Size = new System.Drawing.Size(140, 115),
                 BackColor = Color.FromArgb(211, 47, 47),
-                Padding = new Padding(2)
+                Padding = new Padding(2),
+                Anchor = AnchorStyles.Bottom | AnchorStyles.Left
             };
             picCamera = new PictureBox
             {
@@ -187,10 +195,10 @@ namespace CBTExamWindows
             pnlCamera.Controls.Add(picCamera);
             pnlCamera.Controls.Add(lblCamBadge);
             Controls.Add(pnlCamera);
-            pnlCamera.BringToFront();
 
-            // Pojok Kanan Bawah: Zoom In & Zoom Out
-            Button btnZoomIn = BuatTombolZoom("+");
+            // 4. Pojok Kanan Bawah: Zoom In & Zoom Out
+            btnZoomIn = BuatTombolZoom("+");
+            btnZoomIn.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
             btnZoomIn.Click += (s, e) =>
             {
                 if (currentZoom < 2.0 && webView != null)
@@ -200,7 +208,8 @@ namespace CBTExamWindows
                 }
             };
 
-            Button btnZoomOut = BuatTombolZoom("−");
+            btnZoomOut = BuatTombolZoom("−");
+            btnZoomOut.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
             btnZoomOut.Click += (s, e) =>
             {
                 if (currentZoom > 0.6 && webView != null)
@@ -212,15 +221,27 @@ namespace CBTExamWindows
 
             Controls.Add(btnZoomIn);
             Controls.Add(btnZoomOut);
-            btnZoomIn.BringToFront();
-            btnZoomOut.BringToFront();
 
-            Resize += (s, e) =>
-            {
+            AturPosisiFloatingControls();
+            Resize += (s, e) => AturPosisiFloatingControls();
+        }
+
+        private void AturPosisiFloatingControls()
+        {
+            if (pnlCamera != null)
                 pnlCamera.Location = new System.Drawing.Point(16, ClientSize.Height - pnlCamera.Height - 16);
+
+            if (btnZoomOut != null)
                 btnZoomOut.Location = new System.Drawing.Point(ClientSize.Width - 58, ClientSize.Height - 58);
+
+            if (btnZoomIn != null)
                 btnZoomIn.Location = new System.Drawing.Point(ClientSize.Width - 58, ClientSize.Height - 110);
-            };
+
+            // Pastikan urutan lapisan (Z-Order) benar: WebView di belakang, widget mengambang di depan
+            webView?.SendToBack();
+            pnlCamera?.BringToFront();
+            btnZoomIn?.BringToFront();
+            btnZoomOut?.BringToFront();
         }
 
         private Label BuatLabelIndikator(string text, Color color)
@@ -254,9 +275,11 @@ namespace CBTExamWindows
         {
             try
             {
+                // Simpan data cache WebView2 di folder Temp user agar selalu memiliki izin tulis penuh
                 string userDataFolder = Path.Combine(Path.GetTempPath(), "CBTExamSMPN1Tualang_WebView2");
                 Directory.CreateDirectory(userDataFolder);
 
+                // Izinkan sertifikat SSL lokal/IP server sekolah jika menggunakan HTTPS self-signed
                 var options = new CoreWebView2EnvironmentOptions("--ignore-certificate-errors");
                 var env = await CoreWebView2Environment.CreateAsync(null, userDataFolder, options);
 
@@ -269,6 +292,7 @@ namespace CBTExamWindows
                 webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
                 webView.CoreWebView2.Settings.IsZoomControlEnabled = true;
 
+                // Blokir pembukaan jendela/tab baru (arahkan tetap di jendela ujian)
                 webView.CoreWebView2.NewWindowRequested += (s, e) =>
                 {
                     e.Handled = true;
@@ -278,6 +302,7 @@ namespace CBTExamWindows
                     }
                 };
 
+                // Injeksi Anti-Copy & Anti-Select pada setiap halaman
                 await webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(
                     "document.addEventListener('DOMContentLoaded', () => {" +
                     "  document.documentElement.style.userSelect = 'none';" +
@@ -287,15 +312,19 @@ namespace CBTExamWindows
                     "});"
                 );
 
+                // Perbarui tata letak & muat URL ujian
                 webView.Visible = true;
                 AturPosisiFloatingControls();
                 webView.CoreWebView2.Navigate(examUrl);
             }
             catch (WebView2RuntimeNotFoundException)
             {
+                if (isInstallingRuntime) return;
+
                 string installerPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "MicrosoftEdgeWebview2Setup.exe");
                 if (File.Exists(installerPath))
                 {
+                    isInstallingRuntime = true;
                     MessageBox.Show(
                         "Komponen WebView2 sedang dipasang otomatis untuk pertama kali. Mohon tunggu sekitar 15–30 detik...",
                         "Penyiapan Awal Komputer",
@@ -313,14 +342,15 @@ namespace CBTExamWindows
                     if (proc != null)
                     {
                         await proc.WaitForExitAsync();
-                        // Coba muat ulang WebView2 setelah instalasi selesai
+                        isInstallingRuntime = false;
                         await InisialisasiWebViewAsync();
                     }
                 }
                 else
                 {
                     MessageBox.Show(
-                        "File MicrosoftEdgeWebview2Setup.exe tidak ditemukan di folder aplikasi.\nPastikan seluruh isi folder hasil ekstrak disalin ke komputer ini.",
+                        "Microsoft Edge WebView2 Runtime belum terinstal dan file MicrosoftEdgeWebview2Setup.exe tidak ditemukan di folder aplikasi.\n" +
+                        "Pastikan seluruh isi folder hasil ekstrak disalin ke komputer ini.",
                         "Komponen Kurang",
                         MessageBoxButtons.OK,
                         MessageBoxIcon.Error
@@ -392,8 +422,8 @@ namespace CBTExamWindows
                 lblNetwork.Text = isOnline ? "📶 ONLINE" : "❌ OFFLINE";
                 lblNetwork.ForeColor = isOnline ? Color.FromArgb(105, 240, 174) : Color.FromArgb(255, 82, 82);
 
-                // Paksa jendela ujian selalu di depan (Anti Floating / Anti Pindah Aplikasi)
-                if (!isAuthorizedExit && Form.ActiveForm != this)
+                // Paksa jendela ujian selalu di depan (kecuali saat instalasi runtime sedang berjalan)
+                if (!isAuthorizedExit && !isInstallingRuntime && Form.ActiveForm != this)
                 {
                     TopMost = true;
                     Activate();
@@ -418,7 +448,7 @@ namespace CBTExamWindows
         {
             MaksimalkanVolumeWindows();
             SystemSounds.Hand.Play();
-            Console.Beep(1200, 500);
+            try { Console.Beep(1200, 400); } catch { }
         }
 
         // --- BLOKIR TOMBOL KEYBOARD WINDOWS (ALT+TAB, WIN KEY, ESC, PRINTSCREEN, DLL) ---
@@ -447,7 +477,7 @@ namespace CBTExamWindows
                 if (isWinKey || isAltTab || isAltF4 || isEsc || isPrintScreen || isF12)
                 {
                     BunyikanAlarmPeringatan();
-                    return (IntPtr)1; // Blokir tombol sepenuhnya
+                    return (IntPtr)1;
                 }
             }
             return CallNextHookEx(keyboardHookId, nCode, wParam, lParam);
@@ -532,7 +562,7 @@ namespace CBTExamWindows
         {
             if (!isAuthorizedExit)
             {
-                e.Cancel = true; // Cegah penutupan jendela tanpa password
+                e.Cancel = true;
                 BunyikanAlarmPeringatan();
                 return;
             }
