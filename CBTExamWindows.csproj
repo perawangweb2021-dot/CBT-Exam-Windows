@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+    <AssemblyName>CBT-Exam-SMPN1Tualang</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2792.45"/>
+    <PackageReference Include="OpenCvSharp4" Version="4.9.0.20240103"/>
+    <PackageReference Include="OpenCvSharp4.runtime.win" Version="4.9.0.20240103"/>
+    <PackageReference Include="OpenCvSharp4.Extensions" Version="4.9.0.20240103"/>
+    <PackageReference Include="ZXing.Net" Version="0.16.9"/>
+    <PackageReference Include="ZXing.Net.Bindings.Windows.Compatibility" Version="0.16.12"/>
+  </ItemGroup>
+
+</Project>
