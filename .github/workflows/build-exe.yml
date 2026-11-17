@@ -33,8 +33,13 @@ jobs:
     - name: Publish Single-File EXE
       run: dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o ./publish
 
-    - name: Upload Windows EXE Artifact
+    - name: Include WebView2 Runtime Installer
+      shell: powershell
+      run: |
+        Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/p/?LinkId=2124703" -OutFile "./publish/MicrosoftEdgeWebview2Setup.exe"
+
+    - name: Upload Windows Package Artifact
       uses: actions/upload-artifact@v4
       with:
         name: CBT-Exam-SMPN1Tualang-Windows
-        path: ./publish/CBT-Exam-SMPN1Tualang.exe
+        path: ./publish/
