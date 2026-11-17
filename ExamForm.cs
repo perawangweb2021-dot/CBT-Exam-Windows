@@ -29,6 +29,7 @@ namespace CBTExamWindows
         private bool isAuthorizedExit = false;
         private bool cameraRunning = false;
         private bool isInstallingRuntime = false;
+        private bool isDialogShowing = false;
         private double currentZoom = 1.0;
         private IntPtr keyboardHookId = IntPtr.Zero;
         private LowLevelKeyboardProc keyboardProc;
@@ -422,8 +423,8 @@ namespace CBTExamWindows
                 lblNetwork.Text = isOnline ? "📶 ONLINE" : "❌ OFFLINE";
                 lblNetwork.ForeColor = isOnline ? Color.FromArgb(105, 240, 174) : Color.FromArgb(255, 82, 82);
 
-                // Paksa jendela ujian selalu di depan (kecuali saat instalasi runtime sedang berjalan)
-                if (!isAuthorizedExit && !isInstallingRuntime && Form.ActiveForm != this)
+                // Jangan rebut fokus jika dialog password atau instalasi runtime sedang terbuka
+                if (!isAuthorizedExit && !isInstallingRuntime && !isDialogShowing && Form.ActiveForm != this)
                 {
                     TopMost = true;
                     Activate();
@@ -485,11 +486,14 @@ namespace CBTExamWindows
 
         private void TampilkanDialogKeluar()
         {
+            if (isDialogShowing) return;
+            isDialogShowing = true;
+
             using Form exitForm = new Form
             {
                 Text = "IZIN KELUAR UJIAN",
-                Size = new System.Drawing.Size(380, 185),
-                StartPosition = FormStartPosition.CenterParent,
+                Size = new System.Drawing.Size(380, 190),
+                StartPosition = FormStartPosition.CenterScreen,
                 FormBorderStyle = FormBorderStyle.FixedDialog,
                 MaximizeBox = false,
                 MinimizeBox = false,
@@ -509,33 +513,40 @@ namespace CBTExamWindows
                 Location = new System.Drawing.Point(20, 48),
                 Width = 320,
                 UseSystemPasswordChar = true,
-                Font = new Font("Segoe UI", 11)
+                Font = new Font("Segoe UI", 12),
+                TabIndex = 0
             };
 
             Button btnOk = new Button
             {
                 Text = "KELUAR",
-                Location = new System.Drawing.Point(230, 95),
+                Location = new System.Drawing.Point(230, 98),
                 Size = new System.Drawing.Size(110, 36),
                 BackColor = Color.FromArgb(211, 47, 47),
                 ForeColor = Color.White,
                 FlatStyle = FlatStyle.Flat,
-                Font = new Font("Segoe UI", 9, FontStyle.Bold)
+                Font = new Font("Segoe UI", 9, FontStyle.Bold),
+                TabIndex = 1
             };
 
             Button btnCancel = new Button
             {
                 Text = "LANJUT UJIAN",
-                Location = new System.Drawing.Point(100, 95),
+                Location = new System.Drawing.Point(100, 98),
                 Size = new System.Drawing.Size(120, 36),
-                FlatStyle = FlatStyle.Flat
+                FlatStyle = FlatStyle.Flat,
+                TabIndex = 2
             };
+
+            exitForm.AcceptButton = btnOk;
+            exitForm.CancelButton = btnCancel;
 
             btnOk.Click += (s, e) =>
             {
                 if (txtPass.Text.Trim() == "xyz")
                 {
                     isAuthorizedExit = true;
+                    isDialogShowing = false;
                     cameraRunning = false;
                     statusTimer?.Stop();
                     if (keyboardHookId != IntPtr.Zero) UnhookWindowsHookEx(keyboardHookId);
@@ -545,16 +556,31 @@ namespace CBTExamWindows
                 else
                 {
                     BunyikanAlarmPeringatan();
-                    MessageBox.Show("PASSWORD SALAH! Akses keluar ditolak.", "Peringatan", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    MessageBox.Show(exitForm, "PASSWORD SALAH! Akses keluar ditolak.", "Peringatan", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    txtPass.Clear();
+                    txtPass.Focus();
                 }
             };
 
             btnCancel.Click += (s, e) => exitForm.Close();
 
+            // Pastikan kursor langsung aktif di kotak password begitu dialog muncul
+            exitForm.Shown += (s, e) =>
+            {
+                exitForm.Activate();
+                txtPass.Focus();
+            };
+
+            exitForm.FormClosed += (s, e) =>
+            {
+                isDialogShowing = false;
+            };
+
             exitForm.Controls.Add(lbl);
             exitForm.Controls.Add(txtPass);
             exitForm.Controls.Add(btnOk);
             exitForm.Controls.Add(btnCancel);
+
             exitForm.ShowDialog(this);
         }
 
